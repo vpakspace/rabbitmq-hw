@@ -144,6 +144,71 @@ python3 consumer_rmq02.py
 
 ---
 
+## Задание 4*. Ansible playbook для автоматического объединения нод в кластер
+
+### Описание
+
+Ansible playbook для автоматической установки RabbitMQ на любое количество нод и объединения их в HA кластер с политикой `ha-all`.
+
+### Структура
+
+```
+ansible/
+├── inventory/
+│   └── hosts.yml              # Inventory: rmq_master (1 нода) + rmq_slaves (N нод)
+├── group_vars/
+│   └── rabbitmq.yml           # Переменные: erlang cookie, пользователь, политика
+├── roles/
+│   └── rabbitmq/
+│       ├── tasks/main.yml     # Install → Cookie → Plugin → Cluster → HA Policy
+│       ├── handlers/main.yml  # Restart handler
+│       └── templates/
+│           └── rabbitmq.conf.j2
+├── playbook.yml               # Главный playbook
+└── README.md
+```
+
+### Что делает playbook
+
+1. Устанавливает Erlang и RabbitMQ из официальных репозиториев
+2. Настраивает единый Erlang cookie на всех нодах
+3. Деплоит конфигурацию `rabbitmq.conf`
+4. Включает management plugin
+5. Объединяет slave ноды в кластер с master нодой (idempotent — не повторяет если уже в кластере)
+6. Устанавливает HA политику `ha-all` для зеркалирования всех очередей
+7. Создает admin пользователя
+
+### Запуск
+
+```bash
+# 1. Отредактировать inventory с реальными IP адресами нод
+vim ansible/inventory/hosts.yml
+
+# 2. Изменить переменные (пароль, cookie) в group_vars
+vim ansible/group_vars/rabbitmq.yml
+
+# 3. Запустить playbook
+cd ansible
+ansible-playbook -i inventory/hosts.yml playbook.yml
+```
+
+### Масштабирование
+
+Для добавления новых нод — достаточно добавить их в секцию `rmq_slaves` в `inventory/hosts.yml` и перезапустить playbook:
+
+```yaml
+rmq_slaves:
+  hosts:
+    rmq02:
+      ansible_host: 192.168.1.12
+    rmq03:
+      ansible_host: 192.168.1.13
+    rmq04:
+      ansible_host: 192.168.1.14
+```
+
+---
+
 ## Файлы проекта
 
 | Файл | Описание |
@@ -152,3 +217,4 @@ python3 consumer_rmq02.py
 | `producer.py` | Скрипт отправки сообщений в очередь hello |
 | `consumer.py` | Скрипт получения сообщений (rmq01, порт 5672) |
 | `consumer_rmq02.py` | Скрипт получения сообщений (rmq02, порт 5673) |
+| `ansible/` | Ansible playbook для автоматического развертывания HA кластера |

@@ -1,0 +1,166 @@
+---
+# ============================================================
+# 1. Install Erlang and RabbitMQ from official repositories
+# ============================================================
+
+- name: Install prerequisites
+  ansible.builtin.apt:
+    name:
+      - curl
+      - gnupg
+      - apt-transport-https
+    state: present
+    update_cache: true
+
+- name: Add RabbitMQ signing key
+  ansible.builtin.apt_key:
+    url: https://keys.openpgp.org/vks/v1/by-fingerprint/0A9AF2115F4687BD29803A206B73A36E6026DFCA
+    state: present
+
+- name: Add Erlang Solutions signing key
+  ansible.builtin.apt_key:
+    url: https://binaries2.erlang-solutions.com/GPG-KEY-pmanager.asc
+    state: present
+
+- name: Add RabbitMQ repository
+  ansible.builtin.apt_repository:
+    repo: "deb https://ppa1.rabbitmq.com/rabbitmq/rabbitmq-erlang/deb/ubuntu {{ ansible_distribution_release }} main"
+    filename: rabbitmq-erlang
+    state: present
+
+- name: Add RabbitMQ server repository
+  ansible.builtin.apt_repository:
+    repo: "deb https://ppa1.rabbitmq.com/rabbitmq/rabbitmq-server/deb/ubuntu {{ ansible_distribution_release }} main"
+    filename: rabbitmq-server
+    state: present
+
+- name: Install Erlang and RabbitMQ
+  ansible.builtin.apt:
+    name:
+      - erlang-base
+      - erlang-nox
+      - rabbitmq-server
+    state: present
+    update_cache: true
+
+# ============================================================
+# 2. Configure Erlang cookie (identical on all nodes)
+# ============================================================
+
+- name: Set Erlang cookie
+  ansible.builtin.copy:
+    content: "{{ rabbitmq_erlang_cookie }}"
+    dest: /var/lib/rabbitmq/.erlang.cookie
+    owner: rabbitmq
+    group: rabbitmq
+    mode: "0400"
+  notify: Restart RabbitMQ
+
+# ============================================================
+# 3. Deploy RabbitMQ configuration
+# ============================================================
+
+- name: Deploy rabbitmq.conf
+  ansible.builtin.template:
+    src: rabbitmq.conf.j2
+    dest: /etc/rabbitmq/rabbitmq.conf
+    owner: rabbitmq
+    group: rabbitmq
+    mode: "0644"
+  notify: Restart RabbitMQ
+
+# ============================================================
+# 4. Enable management plugin and start service
+# ============================================================
+
+- name: Enable RabbitMQ management plugin
+  ansible.builtin.command: rabbitmq-plugins enable rabbitmq_management
+  register: plugin_result
+  changed_when: "'already enabled' not in plugin_result.stdout"
+
+- name: Flush handlers to apply config before clustering
+  ansible.builtin.meta: flush_handlers
+
+- name: Ensure RabbitMQ is started and enabled
+  ansible.builtin.systemd:
+    name: rabbitmq-server
+    state: started
+    enabled: true
+
+- name: Wait for RabbitMQ to be ready
+  ansible.builtin.wait_for:
+    port: 5672
+    delay: 5
+    timeout: 60
+
+# ============================================================
+# 5. Cluster join (slave nodes only)
+# ============================================================
+
+- name: Check cluster status
+  ansible.builtin.command: rabbitmqctl cluster_status
+  register: cluster_status
+  changed_when: false
+  when: inventory_hostname in groups['rmq_slaves']
+
+- name: Stop RabbitMQ app for clustering
+  ansible.builtin.command: rabbitmqctl stop_app
+  when:
+    - inventory_hostname in groups['rmq_slaves']
+    - rabbitmq_master_node not in cluster_status.stdout
+
+- name: Reset RabbitMQ node
+  ansible.builtin.command: rabbitmqctl reset
+  when:
+    - inventory_hostname in groups['rmq_slaves']
+    - rabbitmq_master_node not in cluster_status.stdout
+
+- name: Join RabbitMQ cluster
+  ansible.builtin.command: "rabbitmqctl join_cluster {{ rabbitmq_master_node }}"
+  when:
+    - inventory_hostname in groups['rmq_slaves']
+    - rabbitmq_master_node not in cluster_status.stdout
+
+- name: Start RabbitMQ app after clustering
+  ansible.builtin.command: rabbitmqctl start_app
+  when:
+    - inventory_hostname in groups['rmq_slaves']
+    - rabbitmq_master_node not in cluster_status.stdout
+
+# ============================================================
+# 6. HA policy (master node only)
+# ============================================================
+
+- name: Set HA policy
+  ansible.builtin.command: >
+    rabbitmqctl set_policy {{ rabbitmq_ha_policy_name }}
+    "{{ rabbitmq_ha_policy_pattern }}"
+    '{{ rabbitmq_ha_policy_definition }}'
+  changed_when: true
+  when: inventory_hostname in groups['rmq_master']
+
+# ============================================================
+# 7. Create admin user (master node only)
+# ============================================================
+
+- name: Create admin user
+  ansible.builtin.command: >
+    rabbitmqctl add_user {{ rabbitmq_admin_user }} {{ rabbitmq_admin_password }}
+  register: add_user_result
+  changed_when: add_user_result.rc == 0
+  failed_when:
+    - add_user_result.rc != 0
+    - "'already exists' not in add_user_result.stderr"
+  when: inventory_hostname in groups['rmq_master']
+
+- name: Set admin user tags
+  ansible.builtin.command: >
+    rabbitmqctl set_user_tags {{ rabbitmq_admin_user }} administrator
+  changed_when: true
+  when: inventory_hostname in groups['rmq_master']
+
+- name: Set admin user permissions
+  ansible.builtin.command: >
+    rabbitmqctl set_permissions -p / {{ rabbitmq_admin_user }} ".*" ".*" ".*"
+  changed_when: true
+  when: inventory_hostname in groups['rmq_master']

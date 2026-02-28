@@ -1,0 +1,10 @@
+---
+- name: Deploy RabbitMQ HA Cluster
+  hosts: rabbitmq
+  become: true
+  serial:
+    - 1       # master first
+    - "100%"  # then all slaves in parallel
+
+  roles:
+    - rabbitmq

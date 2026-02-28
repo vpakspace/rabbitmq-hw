@@ -1,0 +1,15 @@
+---
+# Erlang cookie — must be identical on all cluster nodes
+rabbitmq_erlang_cookie: "SECRETCOOKIEFORCLUSTER"
+
+# RabbitMQ admin user
+rabbitmq_admin_user: admin
+rabbitmq_admin_password: admin
+
+# HA policy
+rabbitmq_ha_policy_name: ha-all
+rabbitmq_ha_policy_pattern: ".*"
+rabbitmq_ha_policy_definition: '{"ha-mode":"all"}'
+
+# Master node name (must match inventory hostname)
+rabbitmq_master_node: "rabbit@rmq01"
