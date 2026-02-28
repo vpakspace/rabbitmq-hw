@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+.env
+screenshot.py
+terminal_screenshot.py
+task3_terminal_screenshots.py
+cluster_status_output.txt

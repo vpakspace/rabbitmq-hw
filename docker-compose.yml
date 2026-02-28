@@ -1,0 +1,47 @@
+version: '3.8'
+
+services:
+  rmq01:
+    image: rabbitmq:3.12-management
+    hostname: rmq01
+    container_name: rmq01
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_ERLANG_COOKIE: "secret_cookie_for_clustering"
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    volumes:
+      - rmq01_data:/var/lib/rabbitmq
+    networks:
+      rabbitmq_net:
+        ipv4_address: 172.28.0.10
+
+  rmq02:
+    image: rabbitmq:3.12-management
+    hostname: rmq02
+    container_name: rmq02
+    ports:
+      - "5673:5672"
+      - "15673:15672"
+    environment:
+      RABBITMQ_ERLANG_COOKIE: "secret_cookie_for_clustering"
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    volumes:
+      - rmq02_data:/var/lib/rabbitmq
+    networks:
+      rabbitmq_net:
+        ipv4_address: 172.28.0.11
+
+volumes:
+  rmq01_data:
+  rmq02_data:
+
+networks:
+  rabbitmq_net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.28.0.0/16
